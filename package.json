@@ -1,0 +1,8 @@
+{
+  "name": "pixtown",
+  "version": "1.0.0",
+  "description": "Multiplayer pixel city",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=16" }
+}
