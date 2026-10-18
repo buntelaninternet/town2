@@ -16,9 +16,15 @@ button{font:inherit;font-size:9px;background:#ff6b4a;color:#fff;border:2px solid
 #panel select,#panel input{width:100%;box-sizing:border-box;padding:6px;border:2px solid #000;background:#fff;font:inherit;font-size:9px}#panel input[type=color]{height:32px;padding:0}
 .row{display:flex;gap:6px;margin-top:10px}
 #toast{position:fixed;left:50%;top:60px;transform:translateX(-50%);background:#000;color:#fff;padding:8px 12px;font-size:9px;display:none;z-index:9}
+#stats{position:fixed;left:10px;top:46px;display:flex;flex-direction:column;gap:5px;font-size:9px;color:#fff;text-shadow:1px 1px 0 #000}
+.st{display:flex;gap:6px;align-items:center}.st i{font-style:normal;width:42px}.st s{display:block;width:110px;height:10px;background:#000;border:2px solid #000;text-decoration:none}
+.st u{display:block;height:100%;background:#e63946;text-decoration:none}#bhu{background:#f2a65a}
+#tk{position:fixed;left:50%;bottom:150px;transform:translateX(-50%);width:210px;background:#000;border:2px solid #fff;color:#fff;font-size:9px;padding:6px;display:none;text-align:center}
+#tk u{display:block;height:8px;background:#06d6a0;width:0;margin-top:5px;text-decoration:none}
 </style></head><body>
-<div id="hud"><b>PIXTOWN 3D</b><span id="stat"></span><button class="g" id="my">My house</button><button class="g" id="fr">Free lot</button><span style="opacity:.6">WASD + drag to look · E to interact</span></div>
-<button id="act"></button><div id="pad"><div id="nub"></div></div><div id="panel"></div><div id="toast"></div>
+<div id="hud"><b>PIXTOWN 3D</b><span id="stat"></span><button class="g" id="my">My house</button><button class="g" id="fr">Free lot</button><span style="opacity:.6">WASD + drag to look · E to interact · eat at bakeries &amp; restaurants (orange/red awnings)</span></div>
+<div id="stats"><div class="st"><i>HP</i><s><u id="bhp"></u></s></div><div class="st"><i>FOOD</i><s><u id="bhu"></u></s></div><div class="st"><i>CASH</i><b id="mny"></b></div><div id="fd" style="color:#ffd166"></div></div>
+<div id="tk"><span id="tkl"></span><u id="tkb"></u></div><button id="act"></button><div id="pad"><div id="nub"></div></div><div id="panel"></div><div id="toast"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 const N=120,S=15,K=60,T=.3,TIERS={House:1,Shop:1,Apartment:3,Tower:6},ROOFS=['flat','gable','none'],WINS=['square','tall','round'];
@@ -47,11 +53,11 @@ for(let k=0;k<60;k++){const x=-20+k*(RL/60),z=(k%2?1:-1)*(21+(k*7%5));add(new TH
 for(const z of[-5.6,5.6])add(new THREE.BoxGeometry(.8,6,.8),mat(0x8b1e3f),2,3,z);
 add(new THREE.BoxGeometry(12.4,1.4,.8),mat(0x8b1e3f),2,6.3,0);add(new THREE.PlaneGeometry(6,1.2),label('PIXTOWN','#8b1e3f','#ffe27a'),2.45,6.3,0).rotation.y=Math.PI/2;
 // ---- lots
-const lotG=[],lotCol=[];
+const lotG=[],lotCol=[];let markers=[];
 function buildLot(i){
  if(lotG[i]){sc.remove(lotG[i]);lotG[i].traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material&&o.material.map)o.material.dispose()})}
  const l=lots[i],side=i&1?1:-1,cx=(i>>1)*S+10,cz=side*13,rot=side===1;
- const g=new THREE.Group();g.position.set(cx,0,cz);if(rot)g.rotation.y=Math.PI;sc.add(g);lotG[i]=g;const cols=lotCol[i]=[];
+ markers=markers.filter(m=>m.userData.lot!==i);const g=new THREE.Group();g.position.set(cx,0,cz);if(rot)g.rotation.y=Math.PI;sc.add(g);lotG[i]=g;const cols=lotCol[i]=[];
  const wp=(lx,lz)=>rot?[cx-lx,cz-lz]:[cx+lx,cz+lz];
  const bx=(w,h,d,x,y,z,c,col)=>{const m=add(new THREE.BoxGeometry(w,h,d),mat(c),x,y,z,g);if(col){const a=wp(x-w/2,z-d/2),b=wp(x+w/2,z+d/2);cols.push({x0:Math.min(a[0],b[0]),x1:Math.max(a[0],b[0]),z0:Math.min(a[1],b[1]),z1:Math.max(a[1],b[1])})}return m};
  bx(11,.1,11,0,.05,0,l.owner?0x8a8a8a:0x6aa84f);
@@ -65,6 +71,7 @@ function buildLot(i){
  const wg=l.win==='round'?new THREE.CircleGeometry(.6,12):new THREE.PlaneGeometry(l.win==='tall'?.8:1.3,l.win==='tall'?1.8:1.3);
  for(let f=0;f<fl;f++)for(const x of(f?[-3,0,3]:[-2.9,2.9]))add(wg,winMat,x,f*3.4+1.8,hw+.01,g);
  add(new THREE.PlaneGeometry(3,.5),label((l.name||'New house').slice(0,13),'#ffffff','#1d1b2e'),0,3.12,hw+.02,g);
+ const vn=venue(l);if(vn){bx(3.4,.15,1.8,0,2.9,hw+.9,vn.c);bx(6,1,.9,0,.65,-1,0x8b5a2b);for(let k=-2;k<=2;k++)bx(.5,.4,.4,k*1.2,1.3,-1,SPR[(k+4)%8]);const mk=add(new THREE.OctahedronGeometry(.6),mat(vn.c),0,h+3.6,0,g);mk.userData={lot:i,by:h+3.6};markers.push(mk)}
  if(l.roof==='gable'){const r=add(new THREE.ConeGeometry(7,3,4),mat(0x5b2a2a),0,h+1.6,0,g);r.rotation.y=Math.PI/4}else if(l.roof==='flat')bx(9.6,.3,9.6,0,h+.25,0,0x3a3a48);
  if(l.tier==='House'){bx(2,.5,3,-2.8,.4,-2.6,0x4a6fa5);bx(1.6,.9,1.6,2.5,.55,-2.6,0x8b5a2b)}
  else if(l.tier==='Shop'){bx(6,1,.9,0,.65,-1,0x8b5a2b);bx(7.4,2.4,.5,0,1.3,-3.9,0x6b4a2a);for(let k=-3;k<=3;k++)bx(.6,.5,.4,k,1.2+(k&1)*.7,-3.6,SPR[(k+3)%8])}
@@ -102,13 +109,43 @@ const pad=$('pad'),nub=$('nub');let pd=false;
 function padMove(e){const r=pad.getBoundingClientRect();let dx=(e.clientX-r.left-55)/45,dy=(e.clientY-r.top-55)/45;const m=Math.hypot(dx,dy);if(m>1){dx/=m;dy/=m}joy.x=dx;joy.y=dy;nub.style.transform=`translate(${dx*30}px,${dy*30}px)`}
 pad.addEventListener('pointerdown',e=>{pd=true;pad.setPointerCapture(e.pointerId);padMove(e)});pad.addEventListener('pointermove',e=>{if(pd)padMove(e)});
 const padEnd=()=>{pd=false;joy.x=joy.y=0;nub.style.transform=''};pad.addEventListener('pointerup',padEnd);pad.addEventListener('pointercancel',padEnd);
+// ---- survival + economy
+let G={money:50,hp:100,hun:100,inc:0};try{const q=JSON.parse(localStorage.getItem('pxg')||'null');if(q)G=Object.assign(G,q)}catch(e){}
+setInterval(()=>{try{localStorage.setItem('pxg',JSON.stringify(G))}catch(e){}},2000);
+let task=null,statT=0,warned=false;
+function venue(l){if(l.owner!=='npc')return null;const n=(l.name||'').toLowerCase();
+ if(/bakery|mochi/.test(n))return{k:'bakery',c:0xf2a65a,m:[['Bread',3,20,0],['Croissant',5,30,0],['Cake',9,45,8]]};
+ if(/pizza|nori|inn/.test(n))return{k:'restaurant',c:0xe63946,m:[['Slice',6,35,0],['Full meal',12,65,10],['Feast',22,100,25]]};
+ if(/cafe|tea/.test(n))return{k:'cafe',c:0x8b5a2b,m:[['Tea',2,10,0],['Latte',4,15,3],['Sandwich',7,35,0]]};
+ if(/mart/.test(n))return{k:'mart',c:0x2a9d8f,m:[['Snack',2,12,0],['Ramen cup',5,30,0],['Water',1,5,2]]};return null}
+function buy(i,k){const m=venue(lots[i]).m[k];if(G.money<m[1]){toast('Not enough cash. Work a shift first.');return}
+ if(G.hun>=99&&!m[3]){toast('You are full');return}
+ G.money-=m[1];G.hun=Math.min(100,G.hun+m[2]);G.hp=Math.min(100,G.hp+m[3]);toast('Ate '+m[0].toLowerCase()+'. Yum!');warned=false}
+function startTask(t,dur,fn){task={t:0,dur,fn};$('tkl').textContent=t;$('tk').style.display='block';hide()}
+function work(){startTask('Working...',8,()=>{G.money+=12;G.hun=Math.max(0,G.hun-10);toast('Shift done: +$12')})}
+function restHome(){if(mine<0)return;const c=frontOf(mine),side=mine&1?1:-1;if(Math.hypot(P.x-c[0],P.z-side*13)>6){toast('Walk inside your house to rest');return}
+ startTask('Resting...',6,()=>{G.hp=Math.min(100,G.hp+30);G.hun=Math.max(0,G.hun-8);toast('Rested: +30 HP')})}
+function die(){task=null;$('tk').style.display='none';G.money=Math.floor(G.money/2);G.hp=50;G.hun=60;P.x=-6;P.z=0;P.yaw=-Math.PI/2;hide();toast('You collapsed and woke up at the arch. Lost half your cash.')}
+function tick(dt){G.hun=Math.max(0,G.hun-dt*.17);
+ if(G.hun<=0)G.hp-=dt*.8;else if(G.hun>50&&G.hp<100)G.hp=Math.min(100,G.hp+dt*.25);
+ if(mine>=0){G.inc+=dt;if(G.inc>20){G.inc=0;G.money+=1}}
+ if(G.hun<25&&!warned){warned=true;toast('You are hungry! Find a bakery or restaurant.')}
+ if(G.hp<=0)die();
+ if(task){task.t+=dt;$('tkb').style.width=Math.min(100,task.t/task.dur*100)+'%';if(task.t>=task.dur){const f=task.fn;task=null;$('tk').style.display='none';f()}}
+ statT+=dt;if(statT>.3){statT=0;$('bhp').style.width=Math.max(0,G.hp)+'%';$('bhu').style.width=G.hun+'%';$('mny').textContent='$'+Math.floor(G.money);
+  let bd=1e9,bx2=0;lots.forEach(l=>{if(venue(l)){const x=(l.i>>1)*S+10,d=Math.abs(x-P.x);if(d<bd){bd=d;bx2=x-P.x}}});
+  $('fd').textContent=bd<1e9?'Food '+Math.round(bd)+'m '+(bd<12?'HERE':bx2>0?'>>':'<<'):''}}
 // ---- interaction
 let near=-1;
 function frontOf(i){const side=i&1?1:-1;return[(i>>1)*S+10,side*13-side*6.5]}
 function nearest(){const k=Math.round((P.x-10)/S);let best=-1,bd=4;for(let i=Math.max(0,2*k-2);i<=Math.min(N-1,2*k+3);i++){const[fx,fz]=frontOf(i),side=i&1?1:-1;const d=Math.min(Math.hypot(P.x-fx,P.z-fz),Math.hypot(P.x-fx,P.z-side*13)-2);if(d<bd){bd=d;best=i}}return best}
 const show=h=>{$('panel').innerHTML=h;$('panel').style.display='block'},hide=()=>$('panel').style.display='none';
 $('act').onclick=()=>{if(near<0)return;const l=lots[near];if(!l.owner)claimPanel(near);else if(l.owner==='me')builder();else info(near)};
-function info(i){const l=lots[i];show(`<h3>${l.name||'New house'}</h3>A ${l.tier.toLowerCase()} at A${String(i+1).padStart(3,'0')}. The door is open, so walk right in.<div class="row"><button class="g" onclick="hide()">Close</button></div>`)}
+function info(i){const l=lots[i],v=venue(l);let h=`<h3>${l.name||'New house'}</h3>`;
+ if(v){h+=v.k.toUpperCase()+'. Hungry? Pick something:';v.m.forEach((m,k)=>h+=`<div class="row"><button onclick="buy(${i},${k})">${m[0]} $${m[1]}</button><span>+${m[2]} food${m[3]?' +'+m[3]+' hp':''}</span></div>`)}
+ else if(l.owner==='npc')h+='Staff wanted. A shift takes 8 seconds and pays $12, but it makes you hungry. Stay still while you work.<div class="row"><button onclick="work()">Work a shift</button></div>';
+ else h+=`A ${l.tier.toLowerCase()} at A${String(i+1).padStart(3,'0')}. The door is open, so walk right in.`;
+ show(h+'<div class="row"><button class="g" onclick="hide()">Close</button></div>')}
 function claimPanel(i){if(mine>=0){show(`<h3>Lot A${String(i+1).padStart(3,'0')}</h3>One house per player. You already own A${String(mine+1).padStart(3,'0')}.<div class="row"><button class="g" onclick="hide()">Close</button></div>`);return}
  show(`<h3>Lot A${String(i+1).padStart(3,'0')} is for sale</h3>Claim it free. Name and size lock after your first save.<div class="row"><button onclick="claim(${i})">Claim</button><button class="g" onclick="hide()">Cancel</button></div>`)}
 async function claim(i){try{const r=await api('/api/claim',{i});if(!r.ok){toast(r.j.error||'Could not claim');hide();return}}catch(e){toast('Could not reach the city');return}
@@ -118,7 +155,7 @@ function builder(){const l=lots[mine],locked=l.name&&!l.fresh,opt=(a,v)=>a.map(x
  <label>Size ${locked?'(locked)':''}</label><select id="bt" ${locked?'disabled':''}>${opt(Object.keys(TIERS),l.tier)}</select>
  <label>Wall color</label><input type="color" id="bw" value="${l.wall}"><label>Roof</label><select id="br">${opt(ROOFS,l.roof)}</select>
  <label>Windows</label><select id="bwin">${opt(WINS,l.win)}</select><label>Door color</label><input type="color" id="bd" value="${l.door}">
- <div class="row"><button onclick="saveB()">Save</button><button class="g" onclick="hide()">Close</button></div>`);
+ <div class="row"><button onclick="saveB()">Save</button><button class="g" onclick="restHome()">Rest</button><button class="g" onclick="hide()">Close</button></div>`);
  ['bt','bw','br','bwin','bd'].forEach(id=>$(id).addEventListener('change',()=>apply(false)))}
 function apply(c){const l=lots[mine],bn=$('bn');if(!$('bt').disabled)l.tier=$('bt').value;l.wall=$('bw').value;l.roof=$('br').value;l.win=$('bwin').value;l.door=$('bd').value;if(c&&!bn.disabled){l.name=bn.value.trim()||'My Place';delete l.fresh}buildLot(mine)}
 function saveB(){apply(true);save();hide();toast('Saved. Your house is live.')}
@@ -136,12 +173,14 @@ function loop(now){requestAnimationFrame(loop);const dt=Math.min(.05,(now-last)/
  if(keys.ArrowLeft)P.yaw+=dt*1.8;if(keys.ArrowRight)P.yaw-=dt*1.8;
  const m=Math.hypot(f,s);if(m>0){if(m>1){f/=m;s/=m}const v=5.5*dt,sy=Math.sin(P.yaw),cy=Math.cos(P.yaw),dx=(-sy*f+cy*s)*v,dz=(-cy*f-sy*s)*v;
   if(!blocked(P.x+dx,P.z))P.x+=dx;if(!blocked(P.x,P.z+dz))P.z+=dz;P.x=Math.max(-25,Math.min(K*S+40,P.x));P.z=Math.max(-40,Math.min(40,P.z))}
+ if(task&&m>0){task=null;$('tk').style.display='none';toast('Cancelled')}
+ tick(dt);markers.forEach(mk=>{mk.rotation.y+=dt*2;mk.position.y=mk.userData.by+Math.sin(now/300)*.25});
  cam.position.set(P.x,1.65+Math.sin(now/130)*(m>0?.04:0),P.z);cam.rotation.set(P.pitch,P.yaw,0);
  npcs.forEach(n=>{n.x+=n.dir*n.sp*dt;if(n.x<-15||n.x>K*S+30)n.dir*=-1;if(Math.random()<.001)n.dir*=-1;n.g.position.set(n.x,Math.abs(Math.sin(now/200+n.ph))*.06,n.z);n.g.rotation.y=n.dir>0?Math.PI/2:-Math.PI/2});
  for(const k in peers){const o=peers[k];if(o.t){o.g.position.x+=(o.t.x-o.g.position.x)*.15;o.g.position.z+=(o.t.z-o.g.position.z)*.15;o.g.rotation.y=o.t.r}}
  lotG.forEach((g,i)=>g.visible=Math.abs((i>>1)*S+10-P.x)<95);
  near=nearest();const l=near>=0?lots[near]:null,a=$('act');
- if(l){a.style.display='block';a.textContent=!l.owner?'Claim lot A'+String(near+1).padStart(3,'0'):l.owner==='me'?'Edit my house':'About this building'}else{a.style.display='none'}
+ if(l){a.style.display='block';a.textContent=!l.owner?'Claim lot A'+String(near+1).padStart(3,'0'):l.owner==='me'?'Edit / rest':venue(l)?'Order food':l.owner==='npc'?'Work a shift':'About this building'}else{a.style.display='none'}
  netT+=dt;if(netT>.2){netT=0;api('/api/pos',{x:P.x,z:P.z,r:P.yaw}).catch(()=>{})}
  R.render(sc,cam)}
 requestAnimationFrame(loop);
