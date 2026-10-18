@@ -8,12 +8,26 @@ const MAX_CLAIMS_PER_IP = Number(process.env.MAX_CLAIMS_PER_IP || 5);
 const TIERS = ['House', 'Shop', 'Apartment', 'Tower'], ROOFS = ['flat', 'gable', 'none'], WINS = ['square', 'tall', 'round'];
 const COLOR = /^#[0-9a-f]{6}$/i;
 
+const CODES = {
+  WELCOME: { reward: { money: 75 }, msg: '+$75' },
+  SNACKTIME: { reward: { food: 60 }, msg: 'food +60' },
+  MEDKIT: { reward: { hp: 50 }, msg: 'health +50' },
+  GOLDRUSH: { reward: { money: 250 }, msg: '+$250' },
+};
+try { // extra codes via env: CODES='{"MYCODE":{"money":100,"food":0,"hp":0}}'
+  const extra = JSON.parse(process.env.CODES || '{}');
+  for (const k in extra) { const r = extra[k]; CODES[k.toUpperCase()] = { reward: { money: Math.min(1000, +r.money || 0), food: Math.min(100, +r.food || 0), hp: Math.min(100, +r.hp || 0) }, msg: 'reward received' }; }
+} catch (e) {}
+const RFILE = DATA.replace(/\.json$/, '') + '-redeemed.json';
+let redeemed = {}; try { redeemed = JSON.parse(fs.readFileSync(RFILE, 'utf8')); } catch (e) {}
+let rdirty = false; const attempts = new Map();
+setInterval(() => { if (!rdirty) return; rdirty = false; fs.writeFile(RFILE, JSON.stringify(redeemed), () => {}); }, 2000);
 let lots = {};
 try { lots = JSON.parse(fs.readFileSync(DATA, 'utf8')); } catch (e) {}
 let dirty = false;
 setInterval(() => { if (!dirty) return; dirty = false; fs.writeFile(DATA, JSON.stringify(lots), () => {}); }, 2000);
-process.on('SIGINT', () => { try { fs.writeFileSync(DATA, JSON.stringify(lots)); } catch (e) {} process.exit(); });
-process.on('SIGTERM', () => { try { fs.writeFileSync(DATA, JSON.stringify(lots)); } catch (e) {} process.exit(); });
+process.on('SIGINT', () => { try { fs.writeFileSync(DATA, JSON.stringify(lots)); fs.writeFileSync(RFILE, JSON.stringify(redeemed)); } catch (e) {} process.exit(); });
+process.on('SIGTERM', () => { try { fs.writeFileSync(DATA, JSON.stringify(lots)); fs.writeFileSync(RFILE, JSON.stringify(redeemed)); } catch (e) {} process.exit(); });
 
 const clients = new Set();                       // {res, pid}
 const pos = new Map();                           // pid -> {x, t}
@@ -76,6 +90,17 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/pos') {
     if ([b.x, b.z, b.r].every(v => typeof v === 'number' && isFinite(v))) pos.set(b.pid, { x: Math.max(-100, Math.min(1e5, b.x)), z: Math.max(-100, Math.min(100, b.z)), r: b.r, t: Date.now() });
     return ok(res, 200, {});
+  }
+  if (url.pathname === '/api/redeem') {
+    const code = String(b.code || '').trim().toUpperCase().slice(0, 40), now = Date.now();
+    const a = (attempts.get(b.pid) || []).filter(x => now - x < 60000);
+    if (a.length >= 10) return ok(res, 429, { error: 'Too many tries. Wait a minute.' });
+    a.push(now); attempts.set(b.pid, a);
+    const def = CODES[code];
+    if (!def) return ok(res, 404, { error: 'Invalid code' });
+    if (redeemed[b.pid + ':' + code]) return ok(res, 409, { error: 'Code already used' });
+    redeemed[b.pid + ':' + code] = 1; rdirty = true;
+    return ok(res, 200, { ok: true, msg: def.msg, reward: def.reward });
   }
   const i = b.i;
   if (!Number.isInteger(i) || i < 0 || i >= N) return ok(res, 400, { error: 'bad lot' });
