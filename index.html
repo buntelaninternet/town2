@@ -1,0 +1,148 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Pixtown 3D</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#0a0a24;font-family:'Press Start 2P',ui-monospace,monospace;touch-action:none;user-select:none}
+canvas{display:block;width:100%;height:100%}
+#hud{position:fixed;top:0;left:0;right:0;display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:8px 10px;background:rgba(20,18,40,.8);color:#f5e9c8;font-size:9px}
+#hud b{color:#ff6b4a;font-size:11px}
+button{font:inherit;font-size:9px;background:#ff6b4a;color:#fff;border:2px solid #000;padding:8px 10px;box-shadow:2px 2px 0 #000;cursor:pointer}button.g{background:#44405f}
+#act{position:fixed;right:14px;bottom:24px;display:none;padding:14px 16px;font-size:10px;z-index:4}
+#pad{position:fixed;left:16px;bottom:24px;width:110px;height:110px;border-radius:50%;background:rgba(255,255,255,.18);border:2px solid rgba(255,255,255,.4);touch-action:none}
+#nub{position:absolute;left:35px;top:35px;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.6)}
+#panel{position:fixed;right:10px;top:48px;width:min(290px,calc(100% - 20px));background:#f5e9c8;color:#1d1b2e;border:3px solid #000;box-shadow:4px 4px 0 #000;padding:12px;font-size:9px;line-height:1.7;display:none;z-index:6;max-height:75%;overflow:auto}
+#panel h3{margin:0 0 8px;font-size:11px}#panel label{display:block;margin:6px 0 2px}
+#panel select,#panel input{width:100%;box-sizing:border-box;padding:6px;border:2px solid #000;background:#fff;font:inherit;font-size:9px}#panel input[type=color]{height:32px;padding:0}
+.row{display:flex;gap:6px;margin-top:10px}
+#toast{position:fixed;left:50%;top:60px;transform:translateX(-50%);background:#000;color:#fff;padding:8px 12px;font-size:9px;display:none;z-index:9}
+</style></head><body>
+<div id="hud"><b>PIXTOWN 3D</b><span id="stat"></span><button class="g" id="my">My house</button><button class="g" id="fr">Free lot</button><span style="opacity:.6">WASD + drag to look · E to interact</span></div>
+<button id="act"></button><div id="pad"><div id="nub"></div></div><div id="panel"></div><div id="toast"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const N=120,S=15,K=60,T=.3,TIERS={House:1,Shop:1,Apartment:3,Tower:6},ROOFS=['flat','gable','none'],WINS=['square','tall','round'];
+const NAMES=['Moss Bakery','Pixel Pizza','Luna Books','Odd Socks','Tiny Arcade','Fern Cafe','Dot Dental','Blue Barber','Mango Mart','Cloud Gym','Owl Records','Pip & Co','Lantern Inn','Static Radio','Kiwi Kites','Nori Bar','Brick Lane','Ash Studio','Jelly Labs','Echo Hall','Mochi Hut','Tide Florist','Zed Garage','Vine Tea'];
+const WALLS=['#e07a5f','#81b29a','#f2cc8f','#8ecae6','#cdb4db','#ffafcc','#b5a88f','#9aa9d1'],DOORS=['#6b3f2a','#2b4c7e','#a8323e','#222222'],SPR=[0xff6b4a,0x4cc9f0,0xffd166,0x06d6a0,0xc77dff,0xf72585,0x90be6b,0xf9c74f];
+let seed=7;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
+const lots=[];for(let i=0;i<N;i++){const o=i%3!==1&&i<90;lots.push({i,owner:o?'npc':null,name:o?NAMES[i%NAMES.length]:'',tier:Object.keys(TIERS)[Math.floor(rnd()*4)],wall:WALLS[Math.floor(rnd()*8)],roof:ROOFS[Math.floor(rnd()*3)],door:DOORS[Math.floor(rnd()*4)],win:WINS[Math.floor(rnd()*3)]})}
+const $=id=>document.getElementById(id);
+function toast(m){const t=$('toast');t.textContent=m;t.style.display='block';clearTimeout(toast.h);toast.h=setTimeout(()=>t.style.display='none',2500)}
+// ---- three setup
+const R=new THREE.WebGLRenderer({antialias:true});R.setPixelRatio(Math.min(devicePixelRatio,2));document.body.prepend(R.domElement);
+const sc=new THREE.Scene(),cam=new THREE.PerspectiveCamera(72,1,.1,320);cam.rotation.order='YXZ';
+const hemi=new THREE.HemisphereLight(0xbfd8ff,0x556644,.9),sun=new THREE.DirectionalLight(0xffffff,.8);sc.add(hemi,sun);
+function resize(){R.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()}addEventListener('resize',resize);resize();
+const mc={},mat=c=>mc[c]||(mc[c]=new THREE.MeshLambertMaterial({color:c}));
+const winMat=new THREE.MeshBasicMaterial({color:0x2c3e55});
+function label(t,bg,fg){const c=document.createElement('canvas');c.width=256;c.height=64;const x=c.getContext('2d');x.fillStyle=bg;x.fillRect(0,0,256,64);x.fillStyle=fg;x.font='bold 26px monospace';x.textAlign='center';x.textBaseline='middle';x.fillText(t,128,34);return new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(c)})}
+function add(geo,m,x,y,z,p){const o=new THREE.Mesh(geo,m);o.position.set(x,y,z);(p||sc).add(o);return o}
+// ---- static world
+const RL=K*S+120,RC=RL/2-30;
+const gr=add(new THREE.PlaneGeometry(3000,3000),mat(0x4f9a4a),0,0,0);gr.rotation.x=-Math.PI/2;
+add(new THREE.BoxGeometry(RL,.04,10),mat(0x3a3a48),RC,.02,0);
+for(const z of[-6.5,6.5])add(new THREE.BoxGeometry(RL,.08,3),mat(0xb0b0b8),RC,.04,z);
+for(let x=-20;x<K*S+60;x+=6)add(new THREE.BoxGeometry(2.4,.05,.25),mat(0xf2e66a),x,.06,0);
+for(let k=0;k<60;k++){const x=-20+k*(RL/60),z=(k%2?1:-1)*(21+(k*7%5));add(new THREE.CylinderGeometry(.25,.3,1.5,6),mat(0x6b4a2a),x,.75,z);add(new THREE.ConeGeometry(1.5,3.5,7),mat(0x2f8a55),x,3,z)}
+for(const z of[-5.6,5.6])add(new THREE.BoxGeometry(.8,6,.8),mat(0x8b1e3f),2,3,z);
+add(new THREE.BoxGeometry(12.4,1.4,.8),mat(0x8b1e3f),2,6.3,0);add(new THREE.PlaneGeometry(6,1.2),label('PIXTOWN','#8b1e3f','#ffe27a'),2.45,6.3,0).rotation.y=Math.PI/2;
+// ---- lots
+const lotG=[],lotCol=[];
+function buildLot(i){
+ if(lotG[i]){sc.remove(lotG[i]);lotG[i].traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material&&o.material.map)o.material.dispose()})}
+ const l=lots[i],side=i&1?1:-1,cx=(i>>1)*S+10,cz=side*13,rot=side===1;
+ const g=new THREE.Group();g.position.set(cx,0,cz);if(rot)g.rotation.y=Math.PI;sc.add(g);lotG[i]=g;const cols=lotCol[i]=[];
+ const wp=(lx,lz)=>rot?[cx-lx,cz-lz]:[cx+lx,cz+lz];
+ const bx=(w,h,d,x,y,z,c,col)=>{const m=add(new THREE.BoxGeometry(w,h,d),mat(c),x,y,z,g);if(col){const a=wp(x-w/2,z-d/2),b=wp(x+w/2,z+d/2);cols.push({x0:Math.min(a[0],b[0]),x1:Math.max(a[0],b[0]),z0:Math.min(a[1],b[1]),z1:Math.max(a[1],b[1])})}return m};
+ bx(11,.1,11,0,.05,0,l.owner?0x8a8a8a:0x6aa84f);
+ if(!l.owner){bx(.12,2,.12,0,1,4.8,0x8b5a2b);add(new THREE.PlaneGeometry(2,.5),label('FOR SALE','#fff','#d00'),0,2,4.9,g);return}
+ const fl=TIERS[l.tier]||1,h=fl*3.4,hw=4.5,w=l.wall;
+ bx(9,.1,9,0,.12,0,0x9c7a54);
+ bx(T,h,9,-hw+T/2,h/2+.1,0,w,1);bx(T,h,9,hw-T/2,h/2+.1,0,w,1);bx(9,h,T,0,h/2+.1,-hw+T/2,w,1);
+ bx(3.4,h,T,-2.8,h/2+.1,hw-T/2,w,1);bx(3.4,h,T,2.8,h/2+.1,hw-T/2,w,1);bx(2.2,h-2.7,T,0,2.7+(h-2.7)/2+.1,hw-T/2,w,0);
+ bx(9,.2,9,0,3.3,0,0xeeeeee);bx(.7,.1,.7,0,3.2,0,0xffffcc);
+ bx(2.6,.15,.2,0,2.78,hw+.05,l.door);bx(.2,2.7,.2,-1.2,1.45,hw+.05,l.door);bx(.2,2.7,.2,1.2,1.45,hw+.05,l.door);
+ const wg=l.win==='round'?new THREE.CircleGeometry(.6,12):new THREE.PlaneGeometry(l.win==='tall'?.8:1.3,l.win==='tall'?1.8:1.3);
+ for(let f=0;f<fl;f++)for(const x of(f?[-3,0,3]:[-2.9,2.9]))add(wg,winMat,x,f*3.4+1.8,hw+.01,g);
+ add(new THREE.PlaneGeometry(3,.5),label((l.name||'New house').slice(0,13),'#ffffff','#1d1b2e'),0,3.12,hw+.02,g);
+ if(l.roof==='gable'){const r=add(new THREE.ConeGeometry(7,3,4),mat(0x5b2a2a),0,h+1.6,0,g);r.rotation.y=Math.PI/4}else if(l.roof==='flat')bx(9.6,.3,9.6,0,h+.25,0,0x3a3a48);
+ if(l.tier==='House'){bx(2,.5,3,-2.8,.4,-2.6,0x4a6fa5);bx(1.6,.9,1.6,2.5,.55,-2.6,0x8b5a2b)}
+ else if(l.tier==='Shop'){bx(6,1,.9,0,.65,-1,0x8b5a2b);bx(7.4,2.4,.5,0,1.3,-3.9,0x6b4a2a);for(let k=-3;k<=3;k++)bx(.6,.5,.4,k,1.2+(k&1)*.7,-3.6,SPR[(k+3)%8])}
+ else if(l.tier==='Apartment'){bx(3,.8,1,-2,.55,-3.5,0x7a4a8c);bx(2.2,1.2,.2,2.2,1.4,-4.2,0x111111);bx(2,.4,2,-1,.3,.5,0xb5a88f)}
+ else{bx(4,.9,1.4,0,.6,-3,0x333333);bx(.9,1.8,.9,3,1,3,0x2f8a55);bx(.9,1.8,.9,-3,1,3,0x2f8a55)}
+}
+// ---- people
+function person(c){const g=new THREE.Group();add(new THREE.CylinderGeometry(.28,.28,1,8),mat(c),0,.8,0,g);add(new THREE.SphereGeometry(.22,8,6),mat(0xf1c27d),0,1.55,0,g);sc.add(g);return g}
+const npcs=[],npcOf={};
+function syncNpcs(){lots.forEach(l=>{if(l.owner&&!npcOf[l.i]){const g=person(SPR[(l.i*3)%8]);const n={g,x:(l.i>>1)*S+10,z:(Math.random()<.5?-1:1)*(2.5+Math.random()*1.5),dir:Math.random()<.5?-1:1,sp:.8+Math.random()*1.4,ph:Math.random()*9};npcOf[l.i]=n;npcs.push(n)}})}
+let peers={},peerCount=0;
+// ---- state + network
+let mine=-1,pid=null;
+try{pid=localStorage.getItem('pxpid');if(!pid){pid=(crypto.randomUUID?crypto.randomUUID():String(Math.random()).slice(2)+Date.now());localStorage.setItem('pxpid',pid)}}catch(e){pid=pid||String(Math.random()).slice(2)+Date.now()}
+const api=(p,b)=>fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({pid},b))}).then(r=>r.json().then(j=>({ok:r.ok,j})));
+function applyLot(i,d){const l=lots[i];if(!l||!d)return;Object.assign(l,{name:d.name,tier:d.tier,wall:d.wall,roof:d.roof,win:d.win,door:d.door,owner:d.pid===pid?'me':'player'});if(d.pid===pid)mine=i;buildLot(i)}
+function save(){if(mine<0)return;const l=lots[mine];api('/api/save',{i:mine,name:l.name||'',tier:l.tier,wall:l.wall,roof:l.roof,win:l.win,door:l.door}).then(r=>{if(!r.ok)toast(r.j.error||'Could not save')}).catch(()=>toast('Could not save'))}
+function stat(){$('stat').textContent=lots.filter(l=>l.owner).length+'/'+N+' buildings · '+(peerCount+1)+' online'}
+for(let i=0;i<N;i++)buildLot(i);syncNpcs();stat();
+const es=new EventSource('/api/events?pid='+encodeURIComponent(pid));
+es.addEventListener('state',e=>{const s=JSON.parse(e.data);for(const k in s)applyLot(+k.slice(1),s[k]);syncNpcs();stat()});
+es.addEventListener('lot',e=>{const m=JSON.parse(e.data);applyLot(m.i,m.d);syncNpcs();stat()});
+es.addEventListener('peers',e=>{const list=JSON.parse(e.data).filter(p=>p.pid!==pid);peerCount=list.length;const seen={};
+ list.forEach(p=>{seen[p.pid]=1;let o=peers[p.pid];if(!o){let h=0;for(const ch of p.pid)h=(h*31+ch.charCodeAt(0))%8;o=peers[p.pid]={g:person(SPR[h])};o.g.position.set(p.x,0,p.z)}o.t=p});
+ for(const k in peers)if(!seen[k]){sc.remove(peers[k].g);delete peers[k]}stat()});
+// ---- player
+const P={x:-6,z:0,yaw:-Math.PI/2,pitch:0},keys={},joy={x:0,y:0};
+function blocked(x,z){const k=Math.floor((x-10)/S);for(let i=Math.max(0,2*(k-1));i<=Math.min(N-1,2*(k+2)+1);i++){const L=lotCol[i];if(L)for(const c of L)if(x>c.x0-.4&&x<c.x1+.4&&z>c.z0-.4&&z<c.z1+.4)return true}return false}
+addEventListener('keydown',e=>{if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT')return;keys[e.code]=1;if(e.code==='KeyE')$('act').onclick()});
+addEventListener('keyup',e=>keys[e.code]=0);
+let ld=null;R.domElement.addEventListener('pointerdown',e=>{ld={x:e.clientX,y:e.clientY};R.domElement.setPointerCapture(e.pointerId)});
+R.domElement.addEventListener('pointermove',e=>{if(!ld)return;P.yaw-=(e.clientX-ld.x)*.006;P.pitch=Math.max(-1.2,Math.min(1.2,P.pitch-(e.clientY-ld.y)*.006));ld={x:e.clientX,y:e.clientY}});
+R.domElement.addEventListener('pointerup',()=>ld=null);
+const pad=$('pad'),nub=$('nub');let pd=false;
+function padMove(e){const r=pad.getBoundingClientRect();let dx=(e.clientX-r.left-55)/45,dy=(e.clientY-r.top-55)/45;const m=Math.hypot(dx,dy);if(m>1){dx/=m;dy/=m}joy.x=dx;joy.y=dy;nub.style.transform=`translate(${dx*30}px,${dy*30}px)`}
+pad.addEventListener('pointerdown',e=>{pd=true;pad.setPointerCapture(e.pointerId);padMove(e)});pad.addEventListener('pointermove',e=>{if(pd)padMove(e)});
+const padEnd=()=>{pd=false;joy.x=joy.y=0;nub.style.transform=''};pad.addEventListener('pointerup',padEnd);pad.addEventListener('pointercancel',padEnd);
+// ---- interaction
+let near=-1;
+function frontOf(i){const side=i&1?1:-1;return[(i>>1)*S+10,side*13-side*6.5]}
+function nearest(){const k=Math.round((P.x-10)/S);let best=-1,bd=4;for(let i=Math.max(0,2*k-2);i<=Math.min(N-1,2*k+3);i++){const[fx,fz]=frontOf(i),side=i&1?1:-1;const d=Math.min(Math.hypot(P.x-fx,P.z-fz),Math.hypot(P.x-fx,P.z-side*13)-2);if(d<bd){bd=d;best=i}}return best}
+const show=h=>{$('panel').innerHTML=h;$('panel').style.display='block'},hide=()=>$('panel').style.display='none';
+$('act').onclick=()=>{if(near<0)return;const l=lots[near];if(!l.owner)claimPanel(near);else if(l.owner==='me')builder();else info(near)};
+function info(i){const l=lots[i];show(`<h3>${l.name||'New house'}</h3>A ${l.tier.toLowerCase()} at A${String(i+1).padStart(3,'0')}. The door is open, so walk right in.<div class="row"><button class="g" onclick="hide()">Close</button></div>`)}
+function claimPanel(i){if(mine>=0){show(`<h3>Lot A${String(i+1).padStart(3,'0')}</h3>One house per player. You already own A${String(mine+1).padStart(3,'0')}.<div class="row"><button class="g" onclick="hide()">Close</button></div>`);return}
+ show(`<h3>Lot A${String(i+1).padStart(3,'0')} is for sale</h3>Claim it free. Name and size lock after your first save.<div class="row"><button onclick="claim(${i})">Claim</button><button class="g" onclick="hide()">Cancel</button></div>`)}
+async function claim(i){try{const r=await api('/api/claim',{i});if(!r.ok){toast(r.j.error||'Could not claim');hide();return}}catch(e){toast('Could not reach the city');return}
+ mine=i;const l=lots[i];l.owner='me';l.name='';l.fresh=true;buildLot(i);syncNpcs();stat();builder()}
+function builder(){const l=lots[mine],locked=l.name&&!l.fresh,opt=(a,v)=>a.map(x=>`<option ${x===v?'selected':''}>${x}</option>`).join('');
+ show(`<h3>Build your house</h3><label>Name ${locked?'(locked)':''}</label><input id="bn" maxlength="13" value="${l.name}" ${locked?'disabled':''} placeholder="My Place">
+ <label>Size ${locked?'(locked)':''}</label><select id="bt" ${locked?'disabled':''}>${opt(Object.keys(TIERS),l.tier)}</select>
+ <label>Wall color</label><input type="color" id="bw" value="${l.wall}"><label>Roof</label><select id="br">${opt(ROOFS,l.roof)}</select>
+ <label>Windows</label><select id="bwin">${opt(WINS,l.win)}</select><label>Door color</label><input type="color" id="bd" value="${l.door}">
+ <div class="row"><button onclick="saveB()">Save</button><button class="g" onclick="hide()">Close</button></div>`);
+ ['bt','bw','br','bwin','bd'].forEach(id=>$(id).addEventListener('change',()=>apply(false)))}
+function apply(c){const l=lots[mine],bn=$('bn');if(!$('bt').disabled)l.tier=$('bt').value;l.wall=$('bw').value;l.roof=$('br').value;l.win=$('bwin').value;l.door=$('bd').value;if(c&&!bn.disabled){l.name=bn.value.trim()||'My Place';delete l.fresh}buildLot(mine)}
+function saveB(){apply(true);save();hide();toast('Saved. Your house is live.')}
+function go(i){const[fx,fz]=frontOf(i);P.x=fx;P.z=fz;P.yaw=(i&1)?Math.PI:0;P.pitch=0}
+$('my').onclick=()=>mine<0?toast('Find a FOR SALE lot and claim it'):go(mine);
+$('fr').onclick=()=>{const f=lots.filter(l=>!l.owner&&(l.i>>1)*S+10>P.x-10)[0]||lots.find(l=>!l.owner);f?go(f.i):toast('The city is full')};
+// ---- loop
+function env(){const d=new Date(),h=d.getHours()+d.getMinutes()/60,t=Math.max(0,Math.sin((h-6)/12*Math.PI));
+ sc.background=new THREE.Color(0x0a0a24).lerp(new THREE.Color(0x87ceeb),Math.min(1,t*2.5));sc.fog=new THREE.Fog(sc.background.getHex(),70,230);
+ sun.intensity=.15+.85*t;hemi.intensity=.4+.6*t;sun.position.set(Math.cos((h-6)/12*Math.PI)*80,Math.max(15,t*100),40);winMat.color.set(t<.15?0xffe27a:0x2c3e55)}
+env();setInterval(env,5000);
+let last=performance.now(),netT=0;
+function loop(now){requestAnimationFrame(loop);const dt=Math.min(.05,(now-last)/1e3);last=now;
+ let f=(keys.KeyW||keys.ArrowUp?1:0)-(keys.KeyS||keys.ArrowDown?1:0)-joy.y,s=(keys.KeyD?1:0)-(keys.KeyA?1:0)+joy.x;
+ if(keys.ArrowLeft)P.yaw+=dt*1.8;if(keys.ArrowRight)P.yaw-=dt*1.8;
+ const m=Math.hypot(f,s);if(m>0){if(m>1){f/=m;s/=m}const v=5.5*dt,sy=Math.sin(P.yaw),cy=Math.cos(P.yaw),dx=(-sy*f+cy*s)*v,dz=(-cy*f-sy*s)*v;
+  if(!blocked(P.x+dx,P.z))P.x+=dx;if(!blocked(P.x,P.z+dz))P.z+=dz;P.x=Math.max(-25,Math.min(K*S+40,P.x));P.z=Math.max(-40,Math.min(40,P.z))}
+ cam.position.set(P.x,1.65+Math.sin(now/130)*(m>0?.04:0),P.z);cam.rotation.set(P.pitch,P.yaw,0);
+ npcs.forEach(n=>{n.x+=n.dir*n.sp*dt;if(n.x<-15||n.x>K*S+30)n.dir*=-1;if(Math.random()<.001)n.dir*=-1;n.g.position.set(n.x,Math.abs(Math.sin(now/200+n.ph))*.06,n.z);n.g.rotation.y=n.dir>0?Math.PI/2:-Math.PI/2});
+ for(const k in peers){const o=peers[k];if(o.t){o.g.position.x+=(o.t.x-o.g.position.x)*.15;o.g.position.z+=(o.t.z-o.g.position.z)*.15;o.g.rotation.y=o.t.r}}
+ lotG.forEach((g,i)=>g.visible=Math.abs((i>>1)*S+10-P.x)<95);
+ near=nearest();const l=near>=0?lots[near]:null,a=$('act');
+ if(l){a.style.display='block';a.textContent=!l.owner?'Claim lot A'+String(near+1).padStart(3,'0'):l.owner==='me'?'Edit my house':'About this building'}else{a.style.display='none'}
+ netT+=dt;if(netT>.2){netT=0;api('/api/pos',{x:P.x,z:P.z,r:P.yaw}).catch(()=>{})}
+ R.render(sc,cam)}
+requestAnimationFrame(loop);
+</script></body></html>
