@@ -7,6 +7,7 @@ const DATA = process.env.DATA_FILE || path.join(__dirname, 'data.json');
 const MAX_CLAIMS_PER_IP = Number(process.env.MAX_CLAIMS_PER_IP || 5);
 const TIERS = ['House', 'Shop', 'Apartment', 'Tower'], ROOFS = ['flat', 'gable', 'none'], WINS = ['square', 'tall', 'round'];
 const COLOR = /^#[0-9a-f]{6}$/i;
+const FURN_IDS = ['bed','sofa','armchair','table','chair','bookshelf','tv','desk','lamp','plant','rug','fridge','counter','wardrobe','piano','aquarium'];
 
 const CODES = {
   WELCOME: { reward: { money: 75 }, msg: '+$75' },
@@ -54,6 +55,13 @@ function cleanLook(b, base) {
   if (COLOR.test(b.door)) o.door = b.door;
   if (ROOFS.includes(b.roof)) o.roof = b.roof;
   if (WINS.includes(b.win)) o.win = b.win;
+  if (COLOR.test(b.inner)) o.inner = b.inner;
+  if (COLOR.test(b.fcol)) o.fcol = b.fcol;
+  if (['wood', 'tile', 'carpet'].includes(b.floor)) o.floor = b.floor;
+  if (Array.isArray(b.furn)) {
+    const q = v => Math.round(Math.max(-4, Math.min(4, +v || 0)) * 2) / 2;
+    o.furn = b.furn.slice(0, 40).filter(f => Array.isArray(f) && FURN_IDS.includes(f[0])).map(f => [f[0], q(f[1]), q(f[2]), ((((+f[3] || 0) | 0) % 4) + 4) % 4]);
+  }
   return o;
 }
 function body(req) {
